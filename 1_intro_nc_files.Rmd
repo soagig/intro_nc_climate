@@ -1,0 +1,184 @@
+---
+title: "gis_r_sofia"
+output: html_document
+date: "2022-11-22"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+Hoy vamos a aprender a extraer datos climáticos de archivos .nc
+
+What is a .nc file?
+
+*NetCDF is a widely used format for exchanging or distributing climate
+data, and has also been adopted in other fields, particularly in
+bioinformatics, and in other disciplines where large multidimensional
+arrays of data are generated. NetCDF files are self-describing, in the
+sense that they contain metadata that describes what is contained in a
+file, such as the latitude and longitude layout of the grid, the names
+and units of variables in the data set, and "attributes" that describe
+things like missing value codes, or offsets and scale factors that may
+have been used to compress the data. NetCDF files are also
+machine-independent because can be transferred among servers and
+computers that are running different operating systems, without having
+to convert the files in some way.*
+
+# Leer el archivo
+
+Vamos primero a tratar de cargar nuestro archivo.
+
+```{r}
+ncpath <- "E:/Climate_data/spain02/" #la dirección donde se encuentra
+ncname <- "Spain02_v5.0_DD_010reg_aa3d_tasmax"  #nombre del archivo
+ncfname <- paste(ncpath, ncname, ".nc", sep="") #lo unimos
+```
+
+En el otro taller vimos como trabajar con ello con el paquete raster.
+
+```{r}
+library(raster)
+ras <- brick(ncfname)
+str(ras)
+tail(ras@data@names)
+```
+
+El problema es que usando este paquete, nosotros necesitamos saber
+previamente la estructura del archivo para poder entenderlo . Si usamos
+en cambio el paquete ncdf4, los propios metadatos del archivo nos van a
+indicar su estructura.
+
+Usamos la función *nc_open* para abrirlo.
+
+```{r}
+library(ncdf4)
+ncin <- nc_open(ncfname) 
+print(ncin)
+```
+
+Nos da toda la info que necesitamos: las dimensiones (tiempo, longitud,
+latitud), las unidades de la misma, el titulo, referencias...
+
+Otras maneras de conseguir información de los metadatos:
+
+```{r}
+title <- ncatt_get(ncin,0,"title")
+title
+institution <- ncatt_get(ncin,0,"institution")
+institution
+```
+
+Vamos ahora con las variables, que es lo que realmente nos interesa.
+
+Sabemos que se llama *tasmax* porque lo ponía en el print.
+
+```{r}
+dname <- "tasmax"  
+```
+
+También vemos que en este caso las unidades de tiempo son "días desde
+1950/01/01":
+
+```{r}
+tunits <- ncatt_get(ncin,"time","units")
+tunits
+time <- ncvar_get(ncin,"time")
+nt <- dim(time)
+nt
+
+```
+
+Y también que tenemos 24106 días de datos.
+
+Pongamos ahora que queremos obtener la longitud y latitud:
+
+```{r}
+lon <- ncvar_get(ncin,"lon")
+dim(lon)
+lat <- ncvar_get(ncin,"lat")
+dim(lat)
+```
+
+En fin, se pueden conseguir mil cosas más, en este
+[enlace](https://pjbartlein.github.io/REarthSysSci/netCDF.html#reading-restructuring-and-writing-netcdf-files-in-r)
+podéis obtener más información.
+
+# Obtener los datos de las variables
+
+Vamos a lo que interesa: conseguir los datos.
+
+```{r}
+tmp_array <- ncvar_get(ncin,dname)
+dim(tmp_array)
+```
+
+A continuación tenemos un array de las siguientes dimensiones : un grid
+138 (long)\* 79 (lat) con 24106 capitas (dias de 1950 a 2015).
+
+Recordemos que para indexar las dimensiones de un array hay que usar [ ,
+, ]
+
+Si quisiera el dato de la segunda fila, primera columna de la cuarta
+capa: [2,1,4]
+
+Si quisiera los datos de la capa 15 [ , ,15]
+
+### Plot rápido del 1 de enero de 1950 usando rbase:
+
+```{r}
+image(lon,lat,tmp_array[,,1])
+```
+
+### Plot rápido del 1 de enero de 1950 usando el paquete lattice:
+
+```{r}
+library(lattice)
+grid <- expand.grid(lon=lon, lat=lat)
+levelplot((tmp_array[,,1]) ~ lon * lat, grid)
+
+```
+
+### Hacer subset de datos de un período concreto
+
+Tenemos el problema de que las capas no tienen nombres, por tanto a la
+haora de hacer un subset, la manera en la que a mí me resulta más
+intuitiva trabajar con fechas es esta:
+
+Pongamos que queremos hacer un subset de por ejemplo, los datos
+climáticos desde el nacimiento al fallecimiento de Whitney Houston.
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+library(dplyr)
+library(vembedr)
+embed_youtube("Na9vpeKiqt0") %>% 
+  use_start_time("1m39") 
+```
+
+Primero voy a crear un vector con la lista de días que tengo.
+
+```{r}
+list_days <- seq(as.Date("1950-01-01"), as.Date("2015-12-31"),
+                 by="days")
+```
+
+A continuación, vamos a encontrar la posición numérica en dicho vector
+de nuestras fechas, que son el nacimiento y fallecimiento de Whitney
+Houston.
+
+```{r,message=FALSE,warning=FALSE}
+nacimiento_whitney = as.numeric(match(as.Date("1963-08-09"),
+                                 list_days)) 
+fallecimiento_whitney = as.numeric(match(as.Date("2012-02-11"),
+                                list_days))
+```
+
+Y a continuación ya podríamos realizar el subset:
+
+```{r}
+tmp_array_subset<- tmp_array[, ,c(nacimiento_whitney:fallecimiento_whitney)]
+```
